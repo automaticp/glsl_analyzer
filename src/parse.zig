@@ -715,17 +715,23 @@ fn externalDeclaration(p: *Parser) void {
 fn initializer(p: *Parser) void {
     const m = p.open();
     if (p.eat(.@"{")) {
-        while (!p.eof() and !p.at(.@"}")) {
-            const m_init = p.open();
-            initializer(p);
-            if (!p.at(.@"}")) p.expect(.@",");
-            p.close(m_init, .initializer);
-        }
+        initializerList(p);
         p.expect(.@"}");
-        return p.close(m, .initializer_list);
     } else {
         assignmentExpression(p);
     }
+    p.close(m, .initializer);
+}
+
+fn initializerList(p: *Parser) void {
+    const m = p.open();
+    while (!p.eof()) {
+        initializer(p);
+        // will eat the trailing comma here, not in parent initializer()
+        if (!p.eat(.@",")) break;
+        if (p.peek() == .@"}") break;
+    }
+    p.close(m, .initializer_list);
 }
 
 const parameter_first = type_qualifier_first.unionWith(type_specifier_first);
@@ -1716,7 +1722,7 @@ test "tokenize" {
     const source =
         \\#version 330 core
         \\layout (location = 0) in vec3 aPos; // the position variable
-        \\  
+        \\
         \\out vec4 vertexColor; // specify a color output to the fragment shader
         \\
         \\void main()
@@ -1839,10 +1845,11 @@ test "parse infix op" {
         \\    variable_declaration
         \\      identifier 'x'
         \\      =
-        \\      infix
-        \\        number '1'
-        \\        +
-        \\        number '2'
+        \\      initializer
+        \\        infix
+        \\          number '1'
+        \\          +
+        \\          number '2'
         \\    ;
         \\
     , buffer.items);
@@ -1868,10 +1875,11 @@ test "parse logical operator" {
         \\    variable_declaration
         \\      identifier 'x'
         \\      =
-        \\      infix
-        \\        keyword_true 'true'
-        \\        &&
-        \\        keyword_true 'true'
+        \\      initializer
+        \\        infix
+        \\          keyword_true 'true'
+        \\          &&
+        \\          keyword_true 'true'
         \\    ;
         \\
     , buffer.items);
@@ -1912,6 +1920,20 @@ test "parse field selector" {
         \\#version 330 core
         \\void main() {
         \\    foo.flag;
+        \\}
+    );
+}
+
+test "parse initializer list" {
+    // Related to: https://github.com/nolanderc/glsl_analyzer/issues/70
+    try expectParsesOkay(
+        \\#version 450 core
+        \\struct S {
+        \\    float a, b;
+        \\};
+        \\void main() {
+        \\    const S s = {0, 1,};
+        \\    const float dummy = 0.0;
         \\}
     );
 }
